@@ -1,0 +1,659 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>مدرب الشطرنج الاحترافي</title>
+
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
+  <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
+  <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+
+  <style>
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    body {
+      margin: 0;
+      padding: 10px;
+      background: #181818;
+      color: #fff;
+      font-family: system-ui, -apple-system, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      touch-action: manipulation;
+    }
+
+    /* لوحة المعلومات المدمجة فوق الرقعة */
+    .header {
+      width: 92vw;
+      max-width: 380px;
+      background: #242424;
+      border: 1px solid #383838;
+      border-radius: 12px;
+      padding: 8px 12px;
+      margin-bottom: 10px;
+      text-align: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+    }
+    .top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .status-badge {
+      padding: 4px 10px;
+      border-radius: 15px;
+      background: #333;
+      font-size: 13px;
+      font-weight: bold;
+      color: #10b981;
+    }
+    .stealth-badge {
+      padding: 4px 10px;
+      border-radius: 15px;
+      background: #064e3b;
+      color: #a7f3d0;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .stealth-badge.human-slip {
+      background: #78350f;
+      color: #fde68a;
+    }
+    .sub-info {
+      font-size: 12px;
+      color: #d1d5db;
+      display: flex;
+      justify-content: space-between;
+      border-top: 1px solid #333;
+      padding-top: 5px;
+    }
+
+    /* نفس حاوية الرقعة المستقرة تماماً */
+    .board-container {
+      position: relative;
+      width: 92vw;
+      max-width: 380px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.6);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    #board { width: 100%; }
+    #arrow-canvas {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      z-index: 10;
+    }
+
+    /* تظليل المربعات عند اللمس */
+    .highlight-sq {
+      box-shadow: inset 0 0 3px 4px rgba(46, 204, 113, 0.9) !important;
+    }
+
+    /* أزرار التحكم */
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-top: 12px;
+      width: 92vw;
+      max-width: 380px;
+    }
+    button {
+      padding: 11px 8px;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: bold;
+      background: #3b82f6;
+      color: #fff;
+      cursor: pointer;
+    }
+    button:active { opacity: 0.8; }
+    button.btn-flip { background: #8b5cf6; }
+    button.btn-auto { background: #10b981; color: #052e16; }
+    button.btn-undo { background: #374151; }
+    button.btn-new { background: #2563eb; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div class="top-row">
+      <div id="status" class="status-badge">الدور: الأبيض ⚪</div>
+      <div id="move-type" class="stealth-badge">افتتاحية محترفين 📖</div>
+    </div>
+    <div class="sub-info">
+      <span id="move-text">السهم: --</span>
+      <span id="time-text">⏱️ العب خلال: 2-3 ثوانٍ</span>
+    </div>
+  </div>
+
+  <div class="board-container">
+    <div id="board"></div>
+    <canvas id="arrow-canvas"></canvas>
+  </div>
+
+  <div class="controls">
+    <button class="btn-flip" id="btn-flip">🔃 اقلب الرقعة (أسود/أبيض)</button>
+    <button class="btn-auto" id="btn-auto">⚡ حرّك نقلة السهم</button>
+    <button class="btn-undo" id="btn-undo">↩️ تراجع عن حركة</button>
+    <button class="btn-new" id="btn-new">🔄 لعبة جديدة</button>
+  </div>
+
+  <script>
+    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+    if (tg) tg.expand();
+
+    const game = new Chess();
+    const boardEl = $('#board');
+    const canvas = document.getElementById('arrow-canvas');
+    const ctx = canvas.getContext('2d');
+    let currentSuggestedMove = null;
+    let selectedSquare = null;
+
+    function resizeCanvas() {
+      canvas.width = boardEl.width();
+      canvas.height = boardEl.height();
+    }
+
+    // ==================== 1. كتاب افتتاحيات الأساتذة (لمنع الحركات الغريبة بالبداية) ====================
+    const GM_OPENING_BOOK = {
+      "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w": ["e2e4", "d2d4", "g1f3"],
+      "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b": ["e7e5", "c7c5", "e7e6", "c7c6"],
+      "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b": ["d7d5", "g8f6", "e7e6"],
+      "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w": ["g1f3", "f1c4", "b1c3"],
+      "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w": ["g1f3", "b1c3"],
+      "rnbqkbnr/pppp1ppp/4p3/8/4P3/8/PPPP1PPP/RNBQKBNR w": ["d2d4", "g1f3"],
+      "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w": ["d2d4", "b1c3"],
+      "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b": ["b8c6", "g8f6"],
+      "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w": ["f1c4", "f1b5", "d2d4"],
+      "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b": ["f8c5", "g8f6"],
+      "rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w": ["c2c4", "g1f3", "c1f4"],
+      "rnbqkb1r/pppppppp/5n2/8/3P4/8/PPP1PPPP/RNBQKBNR w": ["c2c4", "g1f3", "c1f4"]
+    };
+
+    // ==================== 2. خرائط تمركز المحترفين (PST) ====================
+    const pawnPST = [
+      [ 0,  0,  0,  0,  0,  0,  0,  0],
+      [50, 50, 50, 50, 50, 50, 50, 50],
+      [12, 12, 22, 32, 32, 22, 12, 12],
+      [ 6,  6, 12, 28, 28, 12,  6,  6],
+      [ 0,  0,  2, 24, 24,  2,  0,  0],
+      [ 4, -4, -8,  0,  0, -8, -4,  4],
+      [ 4, 10, 10,-22,-22, 10, 10,  4],
+      [ 0,  0,  0,  0,  0,  0,  0,  0]
+    ];
+
+    const knightPST = [
+      [-50,-40,-30,-30,-30,-30,-40,-50],
+      [-40,-20,  0,  5,  5,  0,-20,-40],
+      [-30,  5, 15, 20, 20, 15,  5,-30],
+      [-30,  5, 20, 25, 25, 20,  5,-30],
+      [-30,  5, 15, 25, 25, 15,  5,-30],
+      [-30,  5, 15, 15, 15, 15,  5,-30],
+      [-40,-20,  0,  5,  5,  0,-20,-40],
+      [-50,-40,-30,-30,-30,-30,-40,-50]
+    ];
+
+    const bishopPST = [
+      [-20,-10,-10,-10,-10,-10,-10,-20],
+      [-10,  5,  0,  0,  0,  0,  5,-10],
+      [-10, 10, 10, 12, 12, 10, 10,-10],
+      [-10,  5, 12, 15, 15, 12,  5,-10],
+      [-10,  5, 10, 15, 15, 10,  5,-10],
+      [-10, 12, 12, 12, 12, 12, 12,-10],
+      [-10, 10,  0,  0,  0,  0, 10,-10],
+      [-20,-10,-10,-10,-10,-10,-10,-20]
+    ];
+
+    const rookPST = [
+      [  0,  0,  0,  5,  5,  0,  0,  0],
+      [ 15, 20, 20, 20, 20, 20, 20, 15],
+      [ -5,  0,  0,  0,  0,  0,  0, -5],
+      [ -5,  0,  0,  0,  0,  0,  0, -5],
+      [ -5,  0,  0,  0,  0,  0,  0, -5],
+      [ -5,  0,  0,  0,  0,  0,  0, -5],
+      [ -5,  0,  0,  0,  0,  0,  0, -5],
+      [  0,  0,  5, 12, 12,  5,  0,  0]
+    ];
+
+    const pieceValues = { p: 100, n: 320, b: 335, r: 500, q: 920, k: 20000 };
+
+    function evaluateBoard() {
+      if (game.in_checkmate()) {
+        return game.turn() === 'w' ? -99999 : 99999;
+      }
+      if (game.in_draw() || game.in_stalemate() || game.in_threefold_repetition()) {
+        return 0;
+      }
+
+      let score = 0;
+      const b = game.board();
+
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const p = b[r][c];
+          if (!p) continue;
+
+          let val = pieceValues[p.type];
+          const row = p.color === 'w' ? r : 7 - r;
+
+          if (p.type === 'p') val += pawnPST[row][c];
+          else if (p.type === 'n') val += knightPST[row][c];
+          else if (p.type === 'b') val += bishopPST[row][c];
+          else if (p.type === 'r') val += rookPST[row][c];
+          else if (p.type === 'q' && (row >= 2 && row <= 5 && c >= 2 && c <= 5)) val += 15;
+
+          score += (p.color === 'w' ? val : -val);
+        }
+      }
+      return score;
+    }
+
+    // بحث تكتيكي هادئ (Quiescence) لمنع تسليم القطع في التكسير
+    function quiescence(alpha, beta, isMax, qDepth) {
+      const standPat = evaluateBoard();
+      if (qDepth === 0 || game.game_over()) return standPat;
+
+      if (isMax) {
+        if (standPat >= beta) return beta;
+        if (alpha < standPat) alpha = standPat;
+        const captures = game.moves({ verbose: true }).filter(m => m.captured || m.promotion);
+        captures.sort((a, b) => (pieceValues[b.captured] || 0) - (pieceValues[a.captured] || 0));
+
+        for (let i = 0; i < captures.length; i++) {
+          game.move(captures[i]);
+          const score = quiescence(alpha, beta, false, qDepth - 1);
+          game.undo();
+          if (score >= beta) return beta;
+          if (score > alpha) alpha = score;
+        }
+        return alpha;
+      } else {
+        if (standPat <= alpha) return alpha;
+        if (beta > standPat) beta = standPat;
+        const captures = game.moves({ verbose: true }).filter(m => m.captured || m.promotion);
+        captures.sort((a, b) => (pieceValues[b.captured] || 0) - (pieceValues[a.captured] || 0));
+
+        for (let i = 0; i < captures.length; i++) {
+          game.move(captures[i]);
+          const score = quiescence(alpha, beta, true, qDepth - 1);
+          game.undo();
+          if (score <= alpha) return alpha;
+          if (score < beta) beta = score;
+        }
+        return beta;
+      }
+    }
+
+    // بحث Minimax مع Alpha-Beta
+    function alphaBeta(depth, alpha, beta, isMax) {
+      if (depth === 0 || game.game_over()) {
+        return quiescence(alpha, beta, isMax, 2);
+      }
+
+      const moves = game.moves({ verbose: true });
+      moves.sort((a, b) => (b.captured ? 20 : 0) - (a.captured ? 20 : 0));
+
+      if (isMax) {
+        let maxEval = -Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          game.move(moves[i]);
+          const ev = alphaBeta(depth - 1, alpha, beta, false);
+          game.undo();
+          if (ev > maxEval) maxEval = ev;
+          if (ev > alpha) alpha = ev;
+          if (beta <= alpha) break;
+        }
+        return maxEval;
+      } else {
+        let minEval = Infinity;
+        for (let i = 0; i < moves.length; i++) {
+          game.move(moves[i]);
+          const ev = alphaBeta(depth - 1, alpha, beta, true);
+          game.undo();
+          if (ev < minEval) minEval = ev;
+          if (ev < beta) beta = ev;
+          if (beta <= alpha) break;
+        }
+        return minEval;
+      }
+    }
+
+    // ==================== 3. اختيار نقلة المحترف المموّه ====================
+    function getStealthProMove() {
+      const moves = game.moves({ verbose: true });
+      if (moves.length === 0) return null;
+
+      const plyCount = game.history().length;
+      const fenParts = game.fen().split(' ');
+      const bookKey = fenParts[0] + ' ' + fenParts[1];
+
+      // 1. استخدام كتاب افتتاحيات المحترفين في البداية
+      if (plyCount < 10 && GM_OPENING_BOOK[bookKey]) {
+        const bookUcis = GM_OPENING_BOOK[bookKey];
+        const chosenUci = bookUcis[Math.floor(Math.random() * bookUcis.length)];
+        const found = moves.find(m => (m.from + m.to) === chosenUci);
+        if (found) {
+          return {
+            move: found,
+            label: "افتتاحية محترفين 📖",
+            isSlip: false,
+            waitSec: "1.5 - 3 ثوانٍ"
+          };
+        }
+      }
+
+      const isWhite = (game.turn() === 'w');
+      const searchDepth = moves.length > 28 ? 2 : 3;
+      const scored = [];
+
+      for (let i = 0; i < moves.length; i++) {
+        const m = moves[i];
+        game.move(m);
+        let rawScore = alphaBeta(searchDepth - 1, -Infinity, Infinity, !isWhite);
+
+        // تعديلات الأسلوب البشري المحترف:
+        let humanBias = 0;
+        // تشجيع التبييت بقوة
+        if (m.san.includes('O-O')) humanBias += 45;
+        // تشجيع تطوير الحصان والفيل في أول 14 نقلة
+        if (plyCount < 14 && (m.piece === 'n' || m.piece === 'b')) humanBias += 20;
+        // معاقبة تحريك جنود الأطراف (a3, a4, h3, h4) في الافتتاح بدون سبب
+        if (plyCount < 14 && m.piece === 'p' && (m.to[0] === 'a' || m.to[0] === 'h') && !m.captured) {
+          humanBias -= 45;
+        }
+        // معاقبة تحريك الملك بدون تبييت في البداية
+        if (plyCount < 16 && m.piece === 'k' && !m.san.includes('O-O')) {
+          humanBias -= 60;
+        }
+
+        const sideScore = (isWhite ? rawScore : -rawScore) + humanBias;
+        game.undo();
+
+        scored.push({ move: m, score: sideScore });
+      }
+
+      // ترتيب النقلات من الأقوى للأضعف بالنسبة لصاحب الدور
+      scored.sort((a, b) => b.score - a.score);
+
+      const best = scored[0];
+      const second = scored[1] || null;
+      const third = scored[2] || null;
+
+      // حساب الوقت البشري الطبيعي للتفكير
+      let waitSec = "3 - 5 ثوانٍ";
+      if (best.move.captured) waitSec = "1 - 2.5 ثانية (أكل بديهي)";
+      else if (moves.length > 30) waitSec = "5 - 8 ثوانٍ (موقف عميق)";
+
+      // 2. إذا وجدت كش مات أو أكل قطعة رابحة كبيرة -> العب الأقوى فوراً (100% سفاح)
+      if (best.score > 50000 || (second && (best.score - second.score) > 120)) {
+        return {
+          move: best.move,
+          label: "ضربة تكتيكية حاسمة 🔥",
+          isSlip: false,
+          waitSec: waitSec
+        };
+      }
+
+      // 3. إذا كنا متعادلين أو متأخرين (أقل من +1.2 بيدق) -> نلعب بقوة عالية لبناء التفوق
+      if (best.score < 120) {
+        // نسمح فقط بالتنويع إذا كانت النقلة الثانية بنفس القوة تقريباً (فرق أقل من 0.20 بيدق)
+        if (second && (best.score - second.score) <= 20 && Math.random() < 0.35) {
+          return {
+            move: second.move,
+            label: "نقلة محترف متوازنة 🎯",
+            isSlip: false,
+            waitSec: waitSec
+          };
+        }
+        return {
+          move: best.move,
+          label: "أفضل نقلة للسيطرة ⚡",
+          isSlip: false,
+          waitSec: waitSec
+        };
+      }
+
+      // 4. عندما نكون متفوقين وفائزين بوضوح (+1.2 بيدق فأكثر):
+      // هنا نطبّق "التمويه البشري الآمن": نختار أحياناً النقلة الثانية أو الثالثة بشرط بقائنا فائزين (> +0.90 بيدق)
+      const roll = Math.random();
+      if (third && (best.score - third.score) <= 65 && third.score >= 95 && roll < 0.25) {
+        return {
+          move: third.move,
+          label: "تمويه بشري آمن (يبقيك فائزاً) 🕵️",
+          isSlip: true,
+          waitSec: waitSec
+        };
+      }
+      if (second && (best.score - second.score) <= 50 && second.score >= 90 && roll < 0.50) {
+        return {
+          move: second.move,
+          label: "نقلة بشرية طبيعية (آمنة) 🎭",
+          isSlip: true,
+          waitSec: waitSec
+        };
+      }
+
+      return {
+        move: best.move,
+        label: "ضغط احترافي مستمر 🎯",
+        isSlip: false,
+        waitSec: waitSec
+      };
+    }
+
+    // ==================== 4. رسم السهم (يدعم الأبيض والأسود عند القلب) ====================
+    function drawArrow(fromSquare, toSquare) {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      if (!fromSquare || !toSquare) return;
+
+      const sqSize = canvas.width / 8;
+      const files = 'abcdefgh';
+      const isBlackOrientation = (board.orientation() === 'black');
+
+      function getCenter(sq) {
+        let file = files.indexOf(sq[0]);
+        let rank = 8 - parseInt(sq[1]);
+
+        if (isBlackOrientation) {
+          file = 7 - file;
+          rank = 7 - rank;
+        }
+
+        return {
+          x: file * sqSize + sqSize / 2,
+          y: rank * sqSize + sqSize / 2
+        };
+      }
+
+      const start = getCenter(fromSquare);
+      const end = getCenter(toSquare);
+
+      const headlen = 16;
+      const angle = Math.atan2(end.y - start.y, end.x - start.x);
+
+      ctx.save();
+      ctx.strokeStyle = "rgba(46, 204, 113, 0.90)";
+      ctx.fillStyle = "rgba(46, 204, 113, 0.90)";
+      ctx.lineWidth = 8;
+      ctx.lineCap = "round";
+
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.lineTo(end.x - headlen * Math.cos(angle), end.y - headlen * Math.sin(angle));
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.moveTo(end.x, end.y);
+      ctx.lineTo(end.x - headlen * Math.cos(angle - Math.PI / 6), end.y - headlen * Math.sin(angle - Math.PI / 6));
+      ctx.lineTo(end.x - headlen * Math.cos(angle + Math.PI / 6), end.y - headlen * Math.sin(angle + Math.PI / 6));
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    function updateGameStatus() {
+      let statusText = game.turn() === 'w' ? 'الدور: الأبيض ⚪' : 'الدور: الأسود ⚫';
+
+      if (game.in_checkmate()) {
+        statusText = '🏁 كش مات! الفائز: ' + (game.turn() === 'w' ? 'الأسود' : 'الأبيض');
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        $('#status').text(statusText);
+        $('#move-type').text('انتهت المباراة 🏆');
+        return;
+      } else if (game.in_draw()) {
+        statusText = '⚖️ تعادل!';
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        $('#status').text(statusText);
+        $('#move-type').text('تعادل');
+        return;
+      }
+
+      $('#status').text(statusText);
+
+      setTimeout(() => {
+        const decision = getStealthProMove();
+        if (decision && decision.move) {
+          currentSuggestedMove = decision.move;
+          drawArrow(decision.move.from, decision.move.to);
+
+          const badge = $('#move-type');
+          badge.text(decision.label);
+          if (decision.isSlip) badge.addClass('human-slip');
+          else badge.removeClass('human-slip');
+
+          $('#move-text').text(`السهم: ${decision.move.from} ➔ ${decision.move.to} (${decision.move.san})`);
+          $('#time-text').text(`⏱️ التوقيت: ${decision.waitSec}`);
+        }
+      }, 30);
+    }
+
+    // ==================== 5. إعداد الرقعة (سحب + نقر) ====================
+    const board = Chessboard('board', {
+      draggable: true,
+      position: 'start',
+      pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+      onDragStart: function(source, piece) {
+        if (game.game_over()) return false;
+        if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+            (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+          return false;
+        }
+      },
+      onDrop: function(source, target) {
+        const move = game.move({
+          from: source,
+          to: target,
+          promotion: 'q'
+        });
+        if (move === null) return 'snapback';
+        clearSquareSelection();
+        updateGameStatus();
+      },
+      onSnapEnd: function() {
+        board.position(game.fen());
+      }
+    });
+
+    function clearSquareSelection() {
+      $('#board .square-55d63').removeClass('highlight-sq');
+      selectedSquare = null;
+    }
+
+    // ميزة التحريك باللمس (تضغط على القطعة ثم تضغط على المربع) بالإضافة للسحب
+    $('#board').on('click', '.square-55d63', function() {
+      const sq = $(this).attr('data-square');
+      if (!sq) return;
+
+      if (!selectedSquare) {
+        const p = game.get(sq);
+        if (p && p.color === game.turn()) {
+          selectedSquare = sq;
+          $('#board .square-55d63').removeClass('highlight-sq');
+          $(this).addClass('highlight-sq');
+        }
+      } else {
+        if (sq === selectedSquare) {
+          clearSquareSelection();
+          return;
+        }
+        const move = game.move({ from: selectedSquare, to: sq, promotion: 'q' });
+        if (move) {
+          board.position(game.fen());
+          clearSquareSelection();
+          updateGameStatus();
+        } else {
+          const p = game.get(sq);
+          if (p && p.color === game.turn()) {
+            selectedSquare = sq;
+            $('#board .square-55d63').removeClass('highlight-sq');
+            $(this).addClass('highlight-sq');
+          } else {
+            clearSquareSelection();
+          }
+        }
+      }
+    });
+
+    // ==================== 6. أزرار التحكم ====================
+    $('#btn-flip').click(() => {
+      board.flip();
+      resizeCanvas();
+      if (currentSuggestedMove && !game.game_over()) {
+        drawArrow(currentSuggestedMove.from, currentSuggestedMove.to);
+      }
+    });
+
+    $('#btn-auto').click(() => {
+      if (!currentSuggestedMove || game.game_over()) return;
+      const move = game.move({
+        from: currentSuggestedMove.from,
+        to: currentSuggestedMove.to,
+        promotion: 'q'
+      });
+      if (move) {
+        board.position(game.fen());
+        clearSquareSelection();
+        updateGameStatus();
+      }
+    });
+
+    $('#btn-new').click(() => {
+      game.reset();
+      board.start();
+      clearSquareSelection();
+      resizeCanvas();
+      updateGameStatus();
+    });
+
+    $('#btn-undo').click(() => {
+      game.undo();
+      board.position(game.fen());
+      clearSquareSelection();
+      updateGameStatus();
+    });
+
+    $(window).resize(function() {
+      board.resize();
+      resizeCanvas();
+      updateGameStatus();
+    });
+
+    setTimeout(() => {
+      resizeCanvas();
+      updateGameStatus();
+    }, 200);
+  </script>
+</body>
+</html>
