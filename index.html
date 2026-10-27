@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>مدرب الشطرنج الاحترافي</title>
+  <title>مدرب الشطرنج الذكي السريع</title>
 
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css" />
@@ -12,7 +12,7 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
 
   <style>
-    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; }
+    * { box-sizing: border-box; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
     body {
       margin: 0;
       padding: 10px;
@@ -27,17 +27,15 @@
       touch-action: manipulation;
     }
 
-    /* لوحة المعلومات المدمجة فوق الرقعة */
     .header {
       width: 92vw;
       max-width: 380px;
-      background: #242424;
+      background: #222;
       border: 1px solid #383838;
       border-radius: 12px;
       padding: 8px 12px;
       margin-bottom: 10px;
-      text-align: center;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
     }
     .top-row {
       display: flex;
@@ -53,28 +51,25 @@
       font-weight: bold;
       color: #10b981;
     }
-    .stealth-badge {
+    .engine-badge {
       padding: 4px 10px;
       border-radius: 15px;
       background: #064e3b;
       color: #a7f3d0;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: bold;
-    }
-    .stealth-badge.human-slip {
-      background: #78350f;
-      color: #fde68a;
     }
     .sub-info {
       font-size: 12px;
-      color: #d1d5db;
+      color: #e5e7eb;
       display: flex;
       justify-content: space-between;
       border-top: 1px solid #333;
       padding-top: 5px;
+      font-weight: bold;
     }
 
-    /* نفس حاوية الرقعة المستقرة تماماً */
+    /* حاوية الرقعة المستقرة */
     .board-container {
       position: relative;
       width: 92vw;
@@ -94,12 +89,27 @@
       z-index: 10;
     }
 
-    /* تظليل المربعات عند اللمس */
-    .highlight-sq {
-      box-shadow: inset 0 0 3px 4px rgba(46, 204, 113, 0.9) !important;
+    /* تظليل المربع المحدد والنقاط الخضراء للكبس السريع */
+    .selected-sq {
+      box-shadow: inset 0 0 0 4px #10b981 !important;
+      background-color: rgba(16, 185, 129, 0.35) !important;
+    }
+    .legal-dot::after {
+      content: "";
+      position: absolute;
+      width: 28%;
+      height: 28%;
+      background: rgba(16, 185, 129, 0.75);
+      border-radius: 50%;
+      top: 36%;
+      left: 36%;
+      pointer-events: none;
+      z-index: 5;
+    }
+    .legal-capture {
+      box-shadow: inset 0 0 0 4px rgba(239, 68, 68, 0.85) !important;
     }
 
-    /* أزرار التحكم */
     .controls {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -109,20 +119,19 @@
       max-width: 380px;
     }
     button {
-      padding: 11px 8px;
+      padding: 12px 8px;
       border: none;
       border-radius: 8px;
       font-size: 13px;
       font-weight: bold;
-      background: #3b82f6;
       color: #fff;
       cursor: pointer;
     }
-    button:active { opacity: 0.8; }
-    button.btn-flip { background: #8b5cf6; }
-    button.btn-auto { background: #10b981; color: #052e16; }
-    button.btn-undo { background: #374151; }
-    button.btn-new { background: #2563eb; }
+    button:active { opacity: 0.75; }
+    .btn-flip { background: #8b5cf6; }
+    .btn-auto { background: #10b981; color: #052e16; }
+    .btn-undo { background: #374151; }
+    .btn-new { background: #3b82f6; }
   </style>
 </head>
 <body>
@@ -130,11 +139,11 @@
   <div class="header">
     <div class="top-row">
       <div id="status" class="status-badge">الدور: الأبيض ⚪</div>
-      <div id="move-type" class="stealth-badge">افتتاحية محترفين 📖</div>
+      <div id="engine-state" class="engine-badge">⚡ سرعة: 1 ثانية</div>
     </div>
     <div class="sub-info">
-      <span id="move-text">السهم: --</span>
-      <span id="time-text">⏱️ العب خلال: 2-3 ثوانٍ</span>
+      <span id="move-text">السهم: جاري التحليل...</span>
+      <span id="eval-text">التفوق: 0.0</span>
     </div>
   </div>
 
@@ -144,333 +153,257 @@
   </div>
 
   <div class="controls">
-    <button class="btn-flip" id="btn-flip">🔃 اقلب الرقعة (أسود/أبيض)</button>
-    <button class="btn-auto" id="btn-auto">⚡ حرّك نقلة السهم</button>
-    <button class="btn-undo" id="btn-undo">↩️ تراجع عن حركة</button>
+    <button class="btn-flip" id="btn-flip">🔃 اقلب الرقعة</button>
+    <button class="btn-auto" id="btn-auto">⚡ العب نقلة السهم</button>
+    <button class="btn-undo" id="btn-undo">↩️ تراجع</button>
     <button class="btn-new" id="btn-new">🔄 لعبة جديدة</button>
   </div>
 
   <script>
-    const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-    if (tg) tg.expand();
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.expand();
+    }
 
     const game = new Chess();
     const boardEl = $('#board');
     const canvas = document.getElementById('arrow-canvas');
     const ctx = canvas.getContext('2d');
-    let currentSuggestedMove = null;
+
     let selectedSquare = null;
+    let currentBestMove = null;
+    let sfWorker = null;
+    let sfReady = false;
+    let sfMultiPV = {};
 
     function resizeCanvas() {
       canvas.width = boardEl.width();
       canvas.height = boardEl.height();
     }
 
-    // ==================== 1. كتاب افتتاحيات الأساتذة (لمنع الحركات الغريبة بالبداية) ====================
-    const GM_OPENING_BOOK = {
-      "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w": ["e2e4", "d2d4", "g1f3"],
-      "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b": ["e7e5", "c7c5", "e7e6", "c7c6"],
-      "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b": ["d7d5", "g8f6", "e7e6"],
-      "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w": ["g1f3", "f1c4", "b1c3"],
+    // ==================== 1. كتاب افتتاحيات بشري فوري (0.1 ثانية) ====================
+    const OPENING_BOOK = {
+      "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w": ["e2e4", "d2d4"],
+      "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b": ["e7e5", "c7c5", "c7c6"],
+      "rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b": ["d7d5", "g8f6"],
+      "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w": ["g1f3", "f1c4"],
       "rnbqkbnr/pp1ppppp/8/2p5/4P3/8/PPPP1PPP/RNBQKBNR w": ["g1f3", "b1c3"],
-      "rnbqkbnr/pppp1ppp/4p3/8/4P3/8/PPPP1PPP/RNBQKBNR w": ["d2d4", "g1f3"],
-      "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w": ["d2d4", "b1c3"],
+      "rnbqkbnr/pp1ppppp/2p5/8/4P3/8/PPPP1PPP/RNBQKBNR w": ["d2d4", "g1f3"],
       "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b": ["b8c6", "g8f6"],
       "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w": ["f1c4", "f1b5", "d2d4"],
-      "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b": ["f8c5", "g8f6"],
-      "rnbqkbnr/ppp1pppp/8/3p4/3P4/8/PPP1PPPP/RNBQKBNR w": ["c2c4", "g1f3", "c1f4"],
-      "rnbqkb1r/pppppppp/5n2/8/3P4/8/PPP1PPPP/RNBQKBNR w": ["c2c4", "g1f3", "c1f4"]
+      "r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R b": ["f8c5", "g8f6"]
     };
 
-    // ==================== 2. خرائط تمركز المحترفين (PST) ====================
-    const pawnPST = [
-      [ 0,  0,  0,  0,  0,  0,  0,  0],
-      [50, 50, 50, 50, 50, 50, 50, 50],
-      [12, 12, 22, 32, 32, 22, 12, 12],
-      [ 6,  6, 12, 28, 28, 12,  6,  6],
-      [ 0,  0,  2, 24, 24,  2,  0,  0],
-      [ 4, -4, -8,  0,  0, -8, -4,  4],
-      [ 4, 10, 10,-22,-22, 10, 10,  4],
-      [ 0,  0,  0,  0,  0,  0,  0,  0]
-    ];
+    // ==================== 2. محرك Stockfish السريع (ثانية واحدة) ====================
+    function initStockfish() {
+      fetch("https://cdnjs.cloudflare.com/ajax/libs/stockfish.js/10.0.2/stockfish.js")
+        .then(r => r.text())
+        .then(code => {
+          const blob = new Blob([code], { type: "application/javascript" });
+          sfWorker = new Worker(URL.createObjectURL(blob));
+          sfWorker.onmessage = onStockfishMsg;
+          sfWorker.postMessage("uci");
+          sfWorker.postMessage("setoption name MultiPV value 2");
+          sfWorker.postMessage("isready");
+        })
+        .catch(() => {
+          $('#engine-state').text('⚡ المحرك الداخلي السريع');
+        });
+    }
 
-    const knightPST = [
-      [-50,-40,-30,-30,-30,-30,-40,-50],
-      [-40,-20,  0,  5,  5,  0,-20,-40],
-      [-30,  5, 15, 20, 20, 15,  5,-30],
-      [-30,  5, 20, 25, 25, 20,  5,-30],
-      [-30,  5, 15, 25, 25, 15,  5,-30],
-      [-30,  5, 15, 15, 15, 15,  5,-30],
-      [-40,-20,  0,  5,  5,  0,-20,-40],
-      [-50,-40,-30,-30,-30,-30,-40,-50]
-    ];
-
-    const bishopPST = [
-      [-20,-10,-10,-10,-10,-10,-10,-20],
-      [-10,  5,  0,  0,  0,  0,  5,-10],
-      [-10, 10, 10, 12, 12, 10, 10,-10],
-      [-10,  5, 12, 15, 15, 12,  5,-10],
-      [-10,  5, 10, 15, 15, 10,  5,-10],
-      [-10, 12, 12, 12, 12, 12, 12,-10],
-      [-10, 10,  0,  0,  0,  0, 10,-10],
-      [-20,-10,-10,-10,-10,-10,-10,-20]
-    ];
-
-    const rookPST = [
-      [  0,  0,  0,  5,  5,  0,  0,  0],
-      [ 15, 20, 20, 20, 20, 20, 20, 15],
-      [ -5,  0,  0,  0,  0,  0,  0, -5],
-      [ -5,  0,  0,  0,  0,  0,  0, -5],
-      [ -5,  0,  0,  0,  0,  0,  0, -5],
-      [ -5,  0,  0,  0,  0,  0,  0, -5],
-      [ -5,  0,  0,  0,  0,  0,  0, -5],
-      [  0,  0,  5, 12, 12,  5,  0,  0]
-    ];
-
-    const pieceValues = { p: 100, n: 320, b: 335, r: 500, q: 920, k: 20000 };
-
-    function evaluateBoard() {
-      if (game.in_checkmate()) {
-        return game.turn() === 'w' ? -99999 : 99999;
-      }
-      if (game.in_draw() || game.in_stalemate() || game.in_threefold_repetition()) {
-        return 0;
+    function onStockfishMsg(e) {
+      const line = e.data;
+      if (line === "readyok") {
+        sfReady = true;
+        $('#engine-state').text('🔥 جاهز (سرعة 1 ثانية)');
+        triggerAnalysis();
+        return;
       }
 
-      let score = 0;
+      if (line.startsWith("info") && line.includes(" pv ")) {
+        const mpv = line.match(/multipv (\d+)/);
+        const cp = line.match(/score cp (-?\d+)/);
+        const mate = line.match(/score mate (-?\d+)/);
+        const pv = line.match(/ pv ([a-h][1-8][a-h][1-8][qrbn]?)/);
+
+        if (pv) {
+          const rank = mpv ? parseInt(mpv[1]) : 1;
+          let score = 0;
+          if (mate) {
+            const m = parseInt(mate[1]);
+            score = m > 0 ? 99000 - m * 100 : -99000 - m * 100;
+          } else if (cp) {
+            score = parseInt(cp[1]);
+          }
+          sfMultiPV[rank] = { uci: pv[1], score: score };
+        }
+      }
+
+      if (line.startsWith("bestmove")) {
+        const m1 = sfMultiPV[1];
+        const m2 = sfMultiPV[2];
+        if (!m1) return;
+
+        let chosen = m1;
+        // تمويه بشري آمن: لا يختار النقلة الثانية إلا إذا كنا فائزين بوضوح (+1.5 بيدق) والفرق بينهما تافه جداً (< 0.25 بيدق)
+        if (m2 && m1.score > 150 && m2.score > 130 && (m1.score - m2.score) <= 25 && Math.random() < 0.35) {
+          chosen = m2;
+          $('#engine-state').text('🕵️ نقلة محترف آمنة');
+        } else {
+          $('#engine-state').text('🔥 نقلة حاسمة (1 ثانية)');
+        }
+
+        applySuggestedUci(chosen.uci, m1.score);
+      }
+    }
+
+    // ==================== 3. المحرك الفوري الاحتياطي (أقل من 0.2 ثانية) ====================
+    const pVals = { p: 100, n: 325, b: 335, r: 500, q: 950, k: 20000 };
+
+    function evalFast() {
+      if (game.in_checkmate()) return game.turn() === 'w' ? -99999 : 99999;
+      if (game.in_draw()) return 0;
+      let s = 0;
       const b = game.board();
-
       for (let r = 0; r < 8; r++) {
         for (let c = 0; c < 8; c++) {
           const p = b[r][c];
           if (!p) continue;
-
-          let val = pieceValues[p.type];
-          const row = p.color === 'w' ? r : 7 - r;
-
-          if (p.type === 'p') val += pawnPST[row][c];
-          else if (p.type === 'n') val += knightPST[row][c];
-          else if (p.type === 'b') val += bishopPST[row][c];
-          else if (p.type === 'r') val += rookPST[row][c];
-          else if (p.type === 'q' && (row >= 2 && row <= 5 && c >= 2 && c <= 5)) val += 15;
-
-          score += (p.color === 'w' ? val : -val);
+          let v = pVals[p.type];
+          if (r >= 2 && r <= 5 && c >= 2 && c <= 5) v += 20;
+          s += (p.color === 'w' ? v : -v);
         }
       }
-      return score;
+      return s;
     }
 
-    // بحث تكتيكي هادئ (Quiescence) لمنع تسليم القطع في التكسير
-    function quiescence(alpha, beta, isMax, qDepth) {
-      const standPat = evaluateBoard();
-      if (qDepth === 0 || game.game_over()) return standPat;
-
-      if (isMax) {
-        if (standPat >= beta) return beta;
-        if (alpha < standPat) alpha = standPat;
-        const captures = game.moves({ verbose: true }).filter(m => m.captured || m.promotion);
-        captures.sort((a, b) => (pieceValues[b.captured] || 0) - (pieceValues[a.captured] || 0));
-
-        for (let i = 0; i < captures.length; i++) {
-          game.move(captures[i]);
-          const score = quiescence(alpha, beta, false, qDepth - 1);
-          game.undo();
-          if (score >= beta) return beta;
-          if (score > alpha) alpha = score;
-        }
-        return alpha;
-      } else {
-        if (standPat <= alpha) return alpha;
-        if (beta > standPat) beta = standPat;
-        const captures = game.moves({ verbose: true }).filter(m => m.captured || m.promotion);
-        captures.sort((a, b) => (pieceValues[b.captured] || 0) - (pieceValues[a.captured] || 0));
-
-        for (let i = 0; i < captures.length; i++) {
-          game.move(captures[i]);
-          const score = quiescence(alpha, beta, true, qDepth - 1);
-          game.undo();
-          if (score <= alpha) return alpha;
-          if (score < beta) beta = score;
-        }
-        return beta;
-      }
-    }
-
-    // بحث Minimax مع Alpha-Beta
-    function alphaBeta(depth, alpha, beta, isMax) {
-      if (depth === 0 || game.game_over()) {
-        return quiescence(alpha, beta, isMax, 2);
-      }
-
+    function quickSearch(depth, alpha, beta, isMax) {
+      if (depth === 0 || game.game_over()) return evalFast();
       const moves = game.moves({ verbose: true });
       moves.sort((a, b) => (b.captured ? 20 : 0) - (a.captured ? 20 : 0));
 
       if (isMax) {
-        let maxEval = -Infinity;
+        let best = -Infinity;
         for (let i = 0; i < moves.length; i++) {
           game.move(moves[i]);
-          const ev = alphaBeta(depth - 1, alpha, beta, false);
+          const val = quickSearch(depth - 1, alpha, beta, false);
           game.undo();
-          if (ev > maxEval) maxEval = ev;
-          if (ev > alpha) alpha = ev;
+          if (val > best) best = val;
+          if (val > alpha) alpha = val;
           if (beta <= alpha) break;
         }
-        return maxEval;
+        return best;
       } else {
-        let minEval = Infinity;
+        let best = Infinity;
         for (let i = 0; i < moves.length; i++) {
           game.move(moves[i]);
-          const ev = alphaBeta(depth - 1, alpha, beta, true);
+          const val = quickSearch(depth - 1, alpha, beta, true);
           game.undo();
-          if (ev < minEval) minEval = ev;
-          if (ev < beta) beta = ev;
+          if (val < best) best = val;
+          if (val < beta) beta = val;
           if (beta <= alpha) break;
         }
-        return minEval;
+        return best;
       }
     }
 
-    // ==================== 3. اختيار نقلة المحترف المموّه ====================
-    function getStealthProMove() {
+    function getInstantMove() {
       const moves = game.moves({ verbose: true });
       if (moves.length === 0) return null;
 
-      const plyCount = game.history().length;
-      const fenParts = game.fen().split(' ');
-      const bookKey = fenParts[0] + ' ' + fenParts[1];
-
-      // 1. استخدام كتاب افتتاحيات المحترفين في البداية
-      if (plyCount < 10 && GM_OPENING_BOOK[bookKey]) {
-        const bookUcis = GM_OPENING_BOOK[bookKey];
-        const chosenUci = bookUcis[Math.floor(Math.random() * bookUcis.length)];
-        const found = moves.find(m => (m.from + m.to) === chosenUci);
-        if (found) {
-          return {
-            move: found,
-            label: "افتتاحية محترفين 📖",
-            isSlip: false,
-            waitSec: "1.5 - 3 ثوانٍ"
-          };
-        }
-      }
-
-      const isWhite = (game.turn() === 'w');
-      const searchDepth = moves.length > 28 ? 2 : 3;
-      const scored = [];
+      const isW = (game.turn() === 'w');
+      let bestMove = moves[0];
+      let bestScore = -Infinity;
 
       for (let i = 0; i < moves.length; i++) {
         const m = moves[i];
         game.move(m);
-        let rawScore = alphaBeta(searchDepth - 1, -Infinity, Infinity, !isWhite);
-
-        // تعديلات الأسلوب البشري المحترف:
-        let humanBias = 0;
-        // تشجيع التبييت بقوة
-        if (m.san.includes('O-O')) humanBias += 45;
-        // تشجيع تطوير الحصان والفيل في أول 14 نقلة
-        if (plyCount < 14 && (m.piece === 'n' || m.piece === 'b')) humanBias += 20;
-        // معاقبة تحريك جنود الأطراف (a3, a4, h3, h4) في الافتتاح بدون سبب
-        if (plyCount < 14 && m.piece === 'p' && (m.to[0] === 'a' || m.to[0] === 'h') && !m.captured) {
-          humanBias -= 45;
-        }
-        // معاقبة تحريك الملك بدون تبييت في البداية
-        if (plyCount < 16 && m.piece === 'k' && !m.san.includes('O-O')) {
-          humanBias -= 60;
-        }
-
-        const sideScore = (isWhite ? rawScore : -rawScore) + humanBias;
+        const raw = quickSearch(2, -Infinity, Infinity, !isW);
+        let sideScore = isW ? raw : -raw;
+        if (m.san.includes('O-O')) sideScore += 40;
         game.undo();
 
-        scored.push({ move: m, score: sideScore });
-      }
-
-      // ترتيب النقلات من الأقوى للأضعف بالنسبة لصاحب الدور
-      scored.sort((a, b) => b.score - a.score);
-
-      const best = scored[0];
-      const second = scored[1] || null;
-      const third = scored[2] || null;
-
-      // حساب الوقت البشري الطبيعي للتفكير
-      let waitSec = "3 - 5 ثوانٍ";
-      if (best.move.captured) waitSec = "1 - 2.5 ثانية (أكل بديهي)";
-      else if (moves.length > 30) waitSec = "5 - 8 ثوانٍ (موقف عميق)";
-
-      // 2. إذا وجدت كش مات أو أكل قطعة رابحة كبيرة -> العب الأقوى فوراً (100% سفاح)
-      if (best.score > 50000 || (second && (best.score - second.score) > 120)) {
-        return {
-          move: best.move,
-          label: "ضربة تكتيكية حاسمة 🔥",
-          isSlip: false,
-          waitSec: waitSec
-        };
-      }
-
-      // 3. إذا كنا متعادلين أو متأخرين (أقل من +1.2 بيدق) -> نلعب بقوة عالية لبناء التفوق
-      if (best.score < 120) {
-        // نسمح فقط بالتنويع إذا كانت النقلة الثانية بنفس القوة تقريباً (فرق أقل من 0.20 بيدق)
-        if (second && (best.score - second.score) <= 20 && Math.random() < 0.35) {
-          return {
-            move: second.move,
-            label: "نقلة محترف متوازنة 🎯",
-            isSlip: false,
-            waitSec: waitSec
-          };
+        if (sideScore > bestScore) {
+          bestScore = sideScore;
+          bestMove = m;
         }
-        return {
-          move: best.move,
-          label: "أفضل نقلة للسيطرة ⚡",
-          isSlip: false,
-          waitSec: waitSec
-        };
       }
-
-      // 4. عندما نكون متفوقين وفائزين بوضوح (+1.2 بيدق فأكثر):
-      // هنا نطبّق "التمويه البشري الآمن": نختار أحياناً النقلة الثانية أو الثالثة بشرط بقائنا فائزين (> +0.90 بيدق)
-      const roll = Math.random();
-      if (third && (best.score - third.score) <= 65 && third.score >= 95 && roll < 0.25) {
-        return {
-          move: third.move,
-          label: "تمويه بشري آمن (يبقيك فائزاً) 🕵️",
-          isSlip: true,
-          waitSec: waitSec
-        };
-      }
-      if (second && (best.score - second.score) <= 50 && second.score >= 90 && roll < 0.50) {
-        return {
-          move: second.move,
-          label: "نقلة بشرية طبيعية (آمنة) 🎭",
-          isSlip: true,
-          waitSec: waitSec
-        };
-      }
-
-      return {
-        move: best.move,
-        label: "ضغط احترافي مستمر 🎯",
-        isSlip: false,
-        waitSec: waitSec
-      };
+      return { uci: bestMove.from + bestMove.to + (bestMove.promotion || ''), score: bestScore };
     }
 
-    // ==================== 4. رسم السهم (يدعم الأبيض والأسود عند القلب) ====================
+    // ==================== 4. عرض السهم وتحديث الواجهة ====================
+    function applySuggestedUci(uci, sideScoreCp) {
+      if (!uci) return;
+      const from = uci.substring(0, 2);
+      const to = uci.substring(2, 4);
+      const legal = game.moves({ verbose: true });
+      const moveObj = legal.find(m => m.from === from && m.to === to);
+      if (!moveObj) return;
+
+      currentBestMove = moveObj;
+      drawArrow(moveObj.from, moveObj.to);
+
+      const whitePerspective = (game.turn() === 'w' ? sideScoreCp : -sideScoreCp) / 100;
+      const sign = whitePerspective > 0 ? '+' : '';
+      $('#move-text').text(`العب: ${moveObj.from} ➔ ${moveObj.to} (${moveObj.san})`);
+      $('#eval-text').text(`التقييم: ${sign}${whitePerspective.toFixed(1)}`);
+    }
+
+    function triggerAnalysis() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      if (game.in_checkmate()) {
+        const winner = game.turn() === 'w' ? 'الأسود ⚫' : 'الأبيض ⚪';
+        $('#status').text(`🏁 كش مات! الفائز: ${winner}`);
+        $('#move-text').text('انتهت المباراة 🏆');
+        return;
+      }
+      if (game.in_draw()) {
+        $('#status').text('⚖️ تعادل!');
+        $('#move-text').text('انتهت بالتعادل');
+        return;
+      }
+
+      $('#status').text(game.turn() === 'w' ? 'الدور: الأبيض ⚪' : 'الدور: الأسود ⚫');
+
+      // 1. فحص كتاب الافتتاحيات البشري الفوري
+      const fenKey = game.fen().split(' ').slice(0, 2).join(' ');
+      if (game.history().length < 8 && OPENING_BOOK[fenKey]) {
+        const list = OPENING_BOOK[fenKey];
+        const bookUci = list[Math.floor(Math.random() * list.length)];
+        $('#engine-state').text('📖 افتتاحية محترفين');
+        applySuggestedUci(bookUci, 30);
+        return;
+      }
+
+      // 2. إظهار سهم مبدئي فوري خلال 0.1 ثانية، ثم تحسينه بـ Stockfish خلال ثانية واحدة
+      const instant = getInstantMove();
+      if (instant) {
+        applySuggestedUci(instant.uci, instant.score);
+      }
+
+      if (sfReady && sfWorker) {
+        sfMultiPV = {};
+        sfWorker.postMessage("stop");
+        sfWorker.postMessage("position fen " + game.fen());
+        sfWorker.postMessage("go depth 13 movetime 950"); // أقل من ثانية واحدة!
+      }
+    }
+
     function drawArrow(fromSquare, toSquare) {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       if (!fromSquare || !toSquare) return;
 
       const sqSize = canvas.width / 8;
       const files = 'abcdefgh';
-      const isBlackOrientation = (board.orientation() === 'black');
+      const isBlack = (board.orientation() === 'black');
 
       function getCenter(sq) {
         let file = files.indexOf(sq[0]);
         let rank = 8 - parseInt(sq[1]);
-
-        if (isBlackOrientation) {
+        if (isBlack) {
           file = 7 - file;
           rank = 7 - rank;
         }
-
         return {
           x: file * sqSize + sqSize / 2,
           y: rank * sqSize + sqSize / 2
@@ -479,13 +412,12 @@
 
       const start = getCenter(fromSquare);
       const end = getCenter(toSquare);
-
       const headlen = 16;
       const angle = Math.atan2(end.y - start.y, end.x - start.x);
 
       ctx.save();
-      ctx.strokeStyle = "rgba(46, 204, 113, 0.90)";
-      ctx.fillStyle = "rgba(46, 204, 113, 0.90)";
+      ctx.strokeStyle = "rgba(16, 185, 129, 0.92)";
+      ctx.fillStyle = "rgba(16, 185, 129, 0.92)";
       ctx.lineWidth = 8;
       ctx.lineCap = "round";
 
@@ -503,106 +435,84 @@
       ctx.restore();
     }
 
-    function updateGameStatus() {
-      let statusText = game.turn() === 'w' ? 'الدور: الأبيض ⚪' : 'الدور: الأسود ⚫';
-
-      if (game.in_checkmate()) {
-        statusText = '🏁 كش مات! الفائز: ' + (game.turn() === 'w' ? 'الأسود' : 'الأبيض');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        $('#status').text(statusText);
-        $('#move-type').text('انتهت المباراة 🏆');
-        return;
-      } else if (game.in_draw()) {
-        statusText = '⚖️ تعادل!';
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        $('#status').text(statusText);
-        $('#move-type').text('تعادل');
-        return;
-      }
-
-      $('#status').text(statusText);
-
-      setTimeout(() => {
-        const decision = getStealthProMove();
-        if (decision && decision.move) {
-          currentSuggestedMove = decision.move;
-          drawArrow(decision.move.from, decision.move.to);
-
-          const badge = $('#move-type');
-          badge.text(decision.label);
-          if (decision.isSlip) badge.addClass('human-slip');
-          else badge.removeClass('human-slip');
-
-          $('#move-text').text(`السهم: ${decision.move.from} ➔ ${decision.move.to} (${decision.move.san})`);
-          $('#time-text').text(`⏱️ التوقيت: ${decision.waitSec}`);
-        }
-      }, 30);
+    // ==================== 5. نظام الكبس (Click-to-Move) + السحب (Drag) ====================
+    function clearHighlights() {
+      $('#board .square-55d63').removeClass('selected-sq legal-dot legal-capture');
     }
 
-    // ==================== 5. إعداد الرقعة (سحب + نقر) ====================
+    function selectPieceOnSquare(sq) {
+      clearHighlights();
+      selectedSquare = sq;
+      $(`#board .square-${sq}`).addClass('selected-sq');
+
+      // إظهار النقاط الخضراء على المربعات المتاحة لهذه القطعة
+      const legalMoves = game.moves({ square: sq, verbose: true });
+      legalMoves.forEach(m => {
+        const targetEl = $(`#board .square-${m.to}`);
+        if (m.captured) targetEl.addClass('legal-capture');
+        else targetEl.addClass('legal-dot');
+      });
+    }
+
     const board = Chessboard('board', {
       draggable: true,
       position: 'start',
       pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
       onDragStart: function(source, piece) {
         if (game.game_over()) return false;
+
+        // إذا كانت هناك قطعة محددة مسبقاً وكبس المستخدم على قطعة الخصم لأكلها -> نفذ الأكل فوراً!
+        if (selectedSquare && selectedSquare !== source) {
+          const moveAttempt = game.move({ from: selectedSquare, to: source, promotion: 'q' });
+          if (moveAttempt) {
+            clearHighlights();
+            selectedSquare = null;
+            board.position(game.fen());
+            triggerAnalysis();
+            return false;
+          }
+        }
+
+        // السماح فقط بتحريك قطع صاحب الدور الحالي
         if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
             (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
           return false;
         }
+
+        // تحديد القطعة عند لمسها لإتاحة الكبس على المربع الثاني
+        selectPieceOnSquare(source);
+        return true;
       },
       onDrop: function(source, target) {
-        const move = game.move({
-          from: source,
-          to: target,
-          promotion: 'q'
-        });
+        if (source === target) {
+          // المستخدم كبس على القطعة فقط ولم يسحبها -> أبقها محددة لينقر على المربع الثاني
+          return;
+        }
+        const move = game.move({ from: source, to: target, promotion: 'q' });
         if (move === null) return 'snapback';
-        clearSquareSelection();
-        updateGameStatus();
+
+        clearHighlights();
+        selectedSquare = null;
+        triggerAnalysis();
       },
       onSnapEnd: function() {
         board.position(game.fen());
       }
     });
 
-    function clearSquareSelection() {
-      $('#board .square-55d63').removeClass('highlight-sq');
-      selectedSquare = null;
-    }
+    // التقاط الكبس (اللمس أو الماوس) على المربعات الفارغة أو مربعات الهدف لتحريك القطعة فوراً
+    $('#board').on('pointerdown touchstart mousedown', '.square-55d63', function(e) {
+      const clickedSq = $(this).attr('data-square');
+      if (!clickedSq || !selectedSquare || clickedSq === selectedSquare) return;
 
-    // ميزة التحريك باللمس (تضغط على القطعة ثم تضغط على المربع) بالإضافة للسحب
-    $('#board').on('click', '.square-55d63', function() {
-      const sq = $(this).attr('data-square');
-      if (!sq) return;
-
-      if (!selectedSquare) {
-        const p = game.get(sq);
-        if (p && p.color === game.turn()) {
-          selectedSquare = sq;
-          $('#board .square-55d63').removeClass('highlight-sq');
-          $(this).addClass('highlight-sq');
-        }
-      } else {
-        if (sq === selectedSquare) {
-          clearSquareSelection();
-          return;
-        }
-        const move = game.move({ from: selectedSquare, to: sq, promotion: 'q' });
-        if (move) {
-          board.position(game.fen());
-          clearSquareSelection();
-          updateGameStatus();
-        } else {
-          const p = game.get(sq);
-          if (p && p.color === game.turn()) {
-            selectedSquare = sq;
-            $('#board .square-55d63').removeClass('highlight-sq');
-            $(this).addClass('highlight-sq');
-          } else {
-            clearSquareSelection();
-          }
-        }
+      const move = game.move({ from: selectedSquare, to: clickedSq, promotion: 'q' });
+      if (move) {
+        e.preventDefault();
+        e.stopPropagation();
+        clearHighlights();
+        selectedSquare = null;
+        board.position(game.fen());
+        triggerAnalysis();
       }
     });
 
@@ -610,49 +520,55 @@
     $('#btn-flip').click(() => {
       board.flip();
       resizeCanvas();
-      if (currentSuggestedMove && !game.game_over()) {
-        drawArrow(currentSuggestedMove.from, currentSuggestedMove.to);
+      if (currentBestMove && !game.game_over()) {
+        drawArrow(currentBestMove.from, currentBestMove.to);
       }
     });
 
     $('#btn-auto').click(() => {
-      if (!currentSuggestedMove || game.game_over()) return;
+      if (!currentBestMove || game.game_over()) return;
       const move = game.move({
-        from: currentSuggestedMove.from,
-        to: currentSuggestedMove.to,
+        from: currentBestMove.from,
+        to: currentBestMove.to,
         promotion: 'q'
       });
       if (move) {
+        clearHighlights();
+        selectedSquare = null;
         board.position(game.fen());
-        clearSquareSelection();
-        updateGameStatus();
+        triggerAnalysis();
       }
-    });
-
-    $('#btn-new').click(() => {
-      game.reset();
-      board.start();
-      clearSquareSelection();
-      resizeCanvas();
-      updateGameStatus();
     });
 
     $('#btn-undo').click(() => {
       game.undo();
+      clearHighlights();
+      selectedSquare = null;
       board.position(game.fen());
-      clearSquareSelection();
-      updateGameStatus();
+      triggerAnalysis();
     });
 
-    $(window).resize(function() {
+    $('#btn-new').click(() => {
+      game.reset();
+      clearHighlights();
+      selectedSquare = null;
+      board.start();
+      resizeCanvas();
+      triggerAnalysis();
+    });
+
+    $(window).resize(() => {
       board.resize();
       resizeCanvas();
-      updateGameStatus();
+      if (currentBestMove && !game.game_over()) {
+        drawArrow(currentBestMove.from, currentBestMove.to);
+      }
     });
 
     setTimeout(() => {
       resizeCanvas();
-      updateGameStatus();
+      initStockfish();
+      triggerAnalysis();
     }, 200);
   </script>
 </body>
